@@ -5,32 +5,17 @@
 
 version: 2
 updates:
+  - package-ecosystem: "pip"
+    directory: "/app"
+    schedule:
+      interval: "weekly"
+
   - package-ecosystem: "docker"
-    # Look for a `Dockerfile` in the `root` directory
+    directory: "/app"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
     directory: "/"
-    # Check for updates once a week
     schedule:
       interval: "weekly"
-- package-ecosystem: "pip"
-    directory: "/python/helpers"
-    schedule:
-      interval: "weekly"
-    groups:
-      common:
-        patterns:
-          - hashin
-          - cython
-          - flake8
-      pip:
-        patterns:
-          - pip
-      pip-tools:
-        patterns:
-          - pip-tools
-      pipenv:
-        patterns:
-          - pipfile
-          - pipenv
-      poetry:
-        patterns:
-          - poetry
