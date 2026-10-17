@@ -11,3 +11,6 @@ __pycache__/
 
 # Secrets : le vrai .env n'est jamais versionné
 .env
+
+#Fichier généré par la CI
+sbom.json
