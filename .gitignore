@@ -1,0 +1,13 @@
+# Environnements virtuels
+.venv/
+
+# Caches Python et pytest
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Base SQLite générée par init_db()
+*.db
+
+# Secrets : le vrai .env n'est jamais versionné
+.env
