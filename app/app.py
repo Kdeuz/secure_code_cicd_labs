@@ -13,12 +13,16 @@ import sqlite3
 import subprocess
 import traceback
 
+import ipaddress
+
 import requests
 import uvicorn
 import yaml
 from fastapi import Body, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.middleware.sessions import SessionMiddleware
+
+from fastapi import HTTPException
 
 SECRET_KEY = os.environ["SECRET_KEY"]
 DB_PATH = os.environ.get("DB_PATH", "shop.db")
@@ -111,8 +115,20 @@ def search(q: str = ""):
 
 @app.get("/ping")
 def ping(host: str = "127.0.0.1"):
-    out = subprocess.run(f"ping -c 1 {host}", shell=True, capture_output=True, text=True)
-    return PlainTextResponse(out.stdout + out.stderr)
+    # 1. Validation stricte de l'adresse IP (rejection immédiate en 400 si invalide)
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid IP address")
+
+    # 2. Exécution sécurisée : passage d'une liste (sans shell=True) + timeout de 5s
+    try:
+        out = subprocess.run(["ping", "-c", "1", host], capture_output=True, text=True, timeout=5, check=False,)
+        return PlainTextResponse(out.stdout + out.stderr)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=408, detail="Ping request timed out")
+    #out = subprocess.run(f"ping -c 1 {host}", shell=True, capture_output=True, text=True)
+    #return PlainTextResponse(out.stdout + out.stderr)
 
 
 @app.get("/hello")
