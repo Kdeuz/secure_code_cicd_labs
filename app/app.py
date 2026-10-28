@@ -80,11 +80,20 @@ def health():
 @app.post("/login")
 def login(request: Request, data: dict = Body(...)):
     username, password = data["username"], data["password"]
-    log.info(f"login attempt user={username} password={password}")
-    sql = f"SELECT * FROM users WHERE username='{username}' AND password='{md5(password)}'"
-    row = db().execute(sql).fetchone()
+
+    #log.info(f"login attempt user={username} password={password}")
+    #Il ne faut pas logger le mot de passe en clair
+    log.info(f"login attempt user={username}")
+
+    # sql = f"SELECT * FROM users WHERE username='{username}' AND password='{md5(password)}'"
+    # row = db().execute(sql).fetchone()
+    # Il ne faut pas utiliser de f-string pour construire la requête SQL, cela permet des injections SQL
+    # Requête paramétrée avec le joker '?' (anti-SQLi)
+
+    sql = "SELECT * FROM users WHERE username = ? AND password = ?"
+    row = db().execute(sql, (username, md5(password))).fetchone()
     if not row:
-        return JSONResponse({"error": "bad credentials"}, status_code=401)
+      return JSONResponse({"error": "bad credentials"}, status_code=401)
     request.session["user_id"] = row["id"]
     request.session["token"] = str(random.randint(0, 10**6))
     return {"status": "logged in", "user": row["username"]}
@@ -92,8 +101,12 @@ def login(request: Request, data: dict = Body(...)):
 
 @app.get("/search")
 def search(q: str = ""):
-    sql = f"SELECT id, name, price FROM products WHERE name LIKE '%{q}%'"
-    return [dict(r) for r in db().execute(sql).fetchall()]
+    # sql = f"SELECT id, name, price FROM products WHERE name LIKE '%{q}%'"
+    # Il ne faut pas utiliser de f-string pour construire la requête SQL, cela permet des injections SQL
+    # Requête paramétrée avec le joker '?' (anti-SQLi)
+    sql = "SELECT id, name, price FROM products WHERE name LIKE ?"
+    # return [dict(r) for r in db().execute(sql).fetchall()]
+    return [dict(r) for r in db().execute(sql, (f"%{q}%",)).fetchall()]
 
 
 @app.get("/ping")
