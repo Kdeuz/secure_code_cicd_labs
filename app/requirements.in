@@ -9,3 +9,4 @@ jinja2
 urllib3>=2.8.0
 idna>=3.7
 slowapi
+itsdangerous
