@@ -23,10 +23,10 @@ import yaml
 from fastapi import Body, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.middleware.sessions import SessionMiddleware
+import html
 
 from fastapi import HTTPException
 from pydantic import BaseModel
-
 from pathlib import Path
 
 SECRET_KEY = os.environ["SECRET_KEY"]
@@ -152,7 +152,8 @@ def ping(host: str = "127.0.0.1"):
 
 @app.get("/hello")
 def hello(name: str = ""):
-    return HTMLResponse(f"<h1>Bonjour {name}</h1>")
+    safe_name = html.escape(name)  # Échappe les caractères spéciaux pour éviter l'XSS
+    return HTMLResponse(f"<h1>Bonjour {safe_name}</h1>")
 
 
 @app.get("/files/{name:path}")
