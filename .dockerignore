@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+**/.env
+**/*.db
+**/__pycache__
+**/*.pyc
+.pytest_cache
+tests
+sbom.json
+app/Dockerfile
+app/requirements.in
