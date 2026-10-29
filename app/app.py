@@ -27,6 +27,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from fastapi import HTTPException
 from pydantic import BaseModel
 
+from pathlib import Path
+
 SECRET_KEY = os.environ["SECRET_KEY"]
 DB_PATH = os.environ.get("DB_PATH", "shop.db")
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
@@ -155,7 +157,18 @@ def hello(name: str = ""):
 
 @app.get("/files/{name:path}")
 def get_file(name: str):
-    return FileResponse(os.path.join(UPLOAD_DIR, name))
+    base_dir = Path(UPLOAD_DIR).resolve()
+    target_path = (base_dir / name).resolve() 
+
+    # 1. Validation stricte du chemin : on ne doit pas sortir du répertoire
+    if not target_path.resolve().is_relative_to(base_dir):
+        return JSONResponse({"error": "invalid file path"}, status_code=400)
+    
+    # 2. Vérification que le fichier existe
+    if not target_path.is_file():
+        return JSONResponse({"error": "file not found"}, status_code=404)
+    
+    return FileResponse(target_path)
 
 
 def safe_eval(expr: str):
