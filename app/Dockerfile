@@ -1,21 +1,15 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DB_PATH=/data/shop.db
 WORKDIR /app
 
-# Création d'un utilisateur non-root
-RUN useradd -m -u 1000 appuser
+RUN useradd -m -u 1000 appuser && mkdir /data && chown appuser:appuser /data
 
-COPY app/requirements.txt requirements.txt
-RUN pip install --no-cache-dir --upgrade setuptools wheel
-RUN pip install --no-cache-dir -r requirements.txt
+COPY app/requirements.txt .
+RUN pip install --require-hashes --no-cache-dir -r requirements.txt
 
 COPY app/ .
 
-RUN chown -R appuser:appuser /app
-
-# Définition de l'utilisateur non-root
 USER appuser
-
 EXPOSE 5000
-
-CMD ["python", "app.py"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
