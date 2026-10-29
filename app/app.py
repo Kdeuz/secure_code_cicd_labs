@@ -54,15 +54,32 @@ ALLOWED_FETCH_HOSTS = {"example.com", "api.github.com", "stackoverflow.com"}
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("minishop")
 
-app = FastAPI(title="MiniShop", debug=True)
-# app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
-# Configuration sécurisée du cookie de session
+# Si la variable ENV vaut "development", IS_DEV sera True. Sinon, False par défaut.
+IS_DEV = os.environ.get("ENV", "production").lower() == "development"
+
+app = FastAPI(
+    title="MiniShop",
+    debug=IS_DEV,                                   # Debug actif uniquement en dev
+    docs_url="/docs" if IS_DEV else None,           # Swagger actif uniquement en dev
+    redoc_url="/redoc" if IS_DEV else None,         # ReDoc actif uniquement en dev
+    openapi_url="/openapi.json" if IS_DEV else None # Schéma OpenAPI actif uniquement en dev
+)
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
     https_only=True,
     same_site="lax"
 )
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    return response
 
 
 def db():
@@ -313,4 +330,6 @@ def boom():
 
 if __name__ == "__main__":
     init_db()
-    uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=True)
+    host = os.environ.get("HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", 5000))
+    uvicorn.run("app.app:app", host=host, port=port)
