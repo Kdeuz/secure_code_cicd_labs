@@ -3,6 +3,7 @@
 Ne jamais déployer ce code tel quel. Votre mission : le rendre conforme.
 Documentation interactive : http://localhost:5000/docs
 """
+import ast
 import base64
 import hashlib
 import logging
@@ -14,6 +15,7 @@ import subprocess
 import traceback
 
 import ipaddress
+import operator
 
 import requests
 import uvicorn
@@ -27,6 +29,15 @@ from fastapi import HTTPException
 SECRET_KEY = os.environ["SECRET_KEY"]
 DB_PATH = os.environ.get("DB_PATH", "shop.db")
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+
+SAFE_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("minishop")
@@ -141,9 +152,33 @@ def get_file(name: str):
     return FileResponse(os.path.join(UPLOAD_DIR, name))
 
 
+def safe_eval(expr: str):
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        elif isinstance(node, ast.BinOp) and type(node.op) in SAFE_OPERATORS:
+            left = _eval(node.left)
+            right = _eval(node.right)
+            return SAFE_OPERATORS[type(node.op)](left, right)
+        elif isinstance(node, ast.UnaryOp) and type(node.op) in SAFE_OPERATORS:
+            return SAFE_OPERATORS[type(node.op)](_eval(node.operand))
+        else:
+            raise ValueError("Unsupported expression")
+
+    parsed = ast.parse(expr, mode='eval')
+    return _eval(parsed)
+
 @app.post("/calc")
 def calc(data: dict = Body(...)):
-    return {"result": str(eval(data["expr"]))}
+    expr = data.get("expr", "")
+    try:
+        result = safe_eval(expr)
+        return {"result": str(result)}
+    except Exception:
+        return JSONResponse({"error": "invalid expression"}, status_code=400)    
+    # return {"result": str(eval(data["expr"]))}
 
 
 @app.post("/import-yaml")
