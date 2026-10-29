@@ -28,6 +28,7 @@ import html
 from fastapi import HTTPException
 from pydantic import BaseModel
 from pathlib import Path
+from urllib.parse import urlparse
 
 SECRET_KEY = os.environ["SECRET_KEY"]
 DB_PATH = os.environ.get("DB_PATH", "shop.db")
@@ -41,6 +42,8 @@ SAFE_OPERATORS = {
     ast.USub: operator.neg,
     ast.UAdd: operator.pos,
 }
+
+ALLOWED_FETCH_HOSTS = {"example.com", "api.github.com", "stackoverflow.com"}
 
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("minishop")
@@ -220,8 +223,22 @@ async def import_profile(profile: ProfileModel):
 
 @app.get("/fetch")
 def fetch(url: str):
-    r = requests.get(url, verify=False)
-    return PlainTextResponse(r.text[:500])
+    parsed = urlparse(url)
+
+    # 1. Vérification du schéma HTTPS
+    if parsed.scheme != "https":
+        return JSONResponse({"error": "only HTTPS URLs are allowed"}, status_code=400)
+
+    # 2. Vérification du nom d'hôte dans la liste blanche
+    if not parsed.hostname or parsed.hostname not in ALLOWED_FETCH_HOSTS:
+        return JSONResponse({"error": "host not allowed"}, status_code=400)
+
+    # 3. Requête sécurisée
+    try:
+        r = requests.get(url, verify=True, timeout=5, allow_redirects=False)
+        return PlainTextResponse(r.text[:500])
+    except Exception:
+        return JSONResponse({"error": "failed to fetch URL"}, status_code=400)
 
 
 @app.get("/invoices/{invoice_id}")
