@@ -32,6 +32,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
+from fastapi import Depends
 
 ph = PasswordHasher()
 
@@ -98,6 +99,42 @@ def init_db():
                      [(2, "Facture Alice", 42.0), (3, "Facture Bob", 99.0)])
     conn.commit()
     conn.close()
+
+def safe_eval(expr: str):
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        elif isinstance(node, ast.BinOp) and type(node.op) in SAFE_OPERATORS:
+            left = _eval(node.left)
+            right = _eval(node.right)
+            return SAFE_OPERATORS[type(node.op)](left, right)
+        elif isinstance(node, ast.UnaryOp) and type(node.op) in SAFE_OPERATORS:
+            return SAFE_OPERATORS[type(node.op)](_eval(node.operand))
+        else:
+            raise ValueError("Unsupported expression")
+
+    parsed = ast.parse(expr, mode='eval')
+    return _eval(parsed)
+
+
+def current_user(request: Request) -> dict:
+    user_id = request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="user not found")
+
+    row = db().execute("SELECT id, username, is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=401, detail="user not found")
+    return dict(row)
+
+def require_admin(user: dict = Depends(current_user)) -> dict:
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return user
+
+
 
 class ProfileModel(BaseModel):
     username: str
@@ -195,25 +232,6 @@ def get_file(name: str):
     
     return FileResponse(target_path)
 
-
-def safe_eval(expr: str):
-    def _eval(node):
-        if isinstance(node, ast.Expression):
-            return _eval(node.body)
-        elif isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
-        elif isinstance(node, ast.BinOp) and type(node.op) in SAFE_OPERATORS:
-            left = _eval(node.left)
-            right = _eval(node.right)
-            return SAFE_OPERATORS[type(node.op)](left, right)
-        elif isinstance(node, ast.UnaryOp) and type(node.op) in SAFE_OPERATORS:
-            return SAFE_OPERATORS[type(node.op)](_eval(node.operand))
-        else:
-            raise ValueError("Unsupported expression")
-
-    parsed = ast.parse(expr, mode='eval')
-    return _eval(parsed)
-
 @app.post("/calc")
 def calc(data: dict = Body(...)):
     expr = data.get("expr", "")
@@ -263,14 +281,16 @@ def fetch(url: str):
 
 
 @app.get("/invoices/{invoice_id}")
-def invoice(invoice_id: int, request: Request):
-    if "user_id" not in request.session:
-        return JSONResponse({"error": "login required"}, status_code=401)
+def invoice(invoice_id: int, user: dict = Depends(current_user)):
     row = db().execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
-    if not row:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return dict(row)
+    if not row :
+        raise HTTPException(status_code=404, detail="invoice not found")
 
+    # Contrôle d'accès IDOR : propriétaire ou administrateur uniquement
+    if row["owner_id"] != user["id"] and not user["is_admin"]:
+        raise HTTPException(status_code=404, detail="not found")
+
+    return dict(row)
 
 @app.get("/admin/users")
 def admin_users(request: Request):
