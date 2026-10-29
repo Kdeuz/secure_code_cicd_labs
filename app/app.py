@@ -200,11 +200,9 @@ def health():
 def login(request: Request, data: LoginModel):
     username, password = data.username, data.password
 
-    #log.info(f"login attempt user={username} password={password}")
     #Il ne faut pas logger le mot de passe en clair
     log.info(f"login attempt user={username}")
 
-    # sql = f"SELECT * FROM users WHERE username='{username}' AND password='{md5(password)}'"
     # row = db().execute(sql).fetchone()
     # Il ne faut pas utiliser de f-string pour construire la requête SQL, cela permet des injections SQL
     # Requête paramétrée avec le joker '?' (anti-SQLi)
@@ -221,7 +219,6 @@ def login(request: Request, data: LoginModel):
         return JSONResponse({"error": "bad credentials"}, status_code=401)
 
     request.session["user_id"] = row["id"]
-    # request.session["token"] = str(random.randint(0, 10**6))
     # Génération d'un jeton cryptographiquement sûr
     request.session["token"] = secrets.token_hex(16)
     return {"status": "logged in", "user": row["username"]}
@@ -229,11 +226,9 @@ def login(request: Request, data: LoginModel):
 
 @app.get("/search")
 def search(q: str = ""):
-    # sql = f"SELECT id, name, price FROM products WHERE name LIKE '%{q}%'"
     # Il ne faut pas utiliser de f-string pour construire la requête SQL, cela permet des injections SQL
     # Requête paramétrée avec le joker '?' (anti-SQLi)
     sql = "SELECT id, name, price FROM products WHERE name LIKE ?"
-    # return [dict(r) for r in db().execute(sql).fetchall()]
     return [dict(r) for r in db().execute(sql, (f"%{q}%",)).fetchall()]
 
 
@@ -251,6 +246,9 @@ def ping(host: str = "127.0.0.1"):
         return PlainTextResponse(out.stdout + out.stderr)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=408, detail="Ping request timed out")
+    except FileNotFoundError:
+        log.error("ping binary not available")
+        raise HTTPException(status_code=503, detail="ping unavailable")
 @app.get("/hello")
 def hello(name: str = ""):
     safe_name = html.escape(name)  # Échappe les caractères spéciaux pour éviter l'XSS
