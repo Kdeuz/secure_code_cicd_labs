@@ -18,6 +18,7 @@ import traceback
 import ipaddress
 import operator
 
+from fastapi.concurrency import asynccontextmanager
 import requests
 import uvicorn
 import yaml
@@ -60,12 +61,18 @@ log = logging.getLogger("minishop")
 
 IS_DEV = os.getenv("ENV", "production").lower() in ("dev", "development")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
 app = FastAPI(
     title="MiniShop",
     debug=IS_DEV,
+    lifespan=lifespan,
     docs_url="/docs" if IS_DEV else None,
     redoc_url="/redoc" if IS_DEV else None,
-    openapi_url="/openapi.json" if IS_DEV else None
+    openapi_url="/openapi.json" if IS_DEV else None,
 )
 
 # Détection de l'exécution via pytest
@@ -349,4 +356,4 @@ if __name__ == "__main__":
     init_db()
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", 5000))
-    uvicorn.run("app.app:app", host=host, port=port)
+    uvicorn.run(app, host=host, port=port)
