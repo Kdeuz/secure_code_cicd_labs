@@ -203,7 +203,6 @@ def login(request: Request, data: LoginModel):
     #Il ne faut pas logger le mot de passe en clair
     log.info(f"login attempt user={username}")
 
-    # row = db().execute(sql).fetchone()
     # Il ne faut pas utiliser de f-string pour construire la requête SQL, cela permet des injections SQL
     # Requête paramétrée avec le joker '?' (anti-SQLi)
 
@@ -249,6 +248,8 @@ def ping(host: str = "127.0.0.1"):
     except FileNotFoundError:
         log.error("ping binary not available")
         raise HTTPException(status_code=503, detail="ping unavailable")
+
+
 @app.get("/hello")
 def hello(name: str = ""):
     safe_name = html.escape(name)  # Échappe les caractères spéciaux pour éviter l'XSS
