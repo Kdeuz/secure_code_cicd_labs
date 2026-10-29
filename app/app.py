@@ -24,7 +24,9 @@ import html
 import secrets
 
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+from fastapi import Query
 from pathlib import Path
 from urllib.parse import urlparse
 from argon2 import PasswordHasher
@@ -68,7 +70,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="MiniShop",
-    debug=IS_DEV,
+    debug=False,
     lifespan=lifespan,
     docs_url="/docs" if IS_DEV else None,
     redoc_url="/redoc" if IS_DEV else None,
@@ -98,11 +100,16 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        log.error("Unhandled error on %s %s", request.method, request.url.path, exc_info=True)
+        response = JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    if not (IS_DEV and request.url.path in ("/docs", "/redoc")):
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
     return response
 
 
@@ -179,16 +186,19 @@ def require(permission: str):
 
 
 class ProfileModel(BaseModel):
-    username: str
-    email: str = ""
-    role: str = "user"
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=1, max_length=50)
+    email: str = Field(default="", max_length=254)
+    role: Literal["user"] = "user"
 
 class LoginModel(BaseModel):
-    username: str
-    password: str
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=1, max_length=50)
+    password: str = Field(min_length=1, max_length=128)
 
 class CalcModel(BaseModel):
-    expr: str
+    model_config = ConfigDict(extra="forbid")
+    expr: str = Field(min_length=1, max_length=200)
 
 @app.get("/health")
 def health():
@@ -224,7 +234,7 @@ def login(request: Request, data: LoginModel):
 
 
 @app.get("/search")
-def search(q: str = ""):
+def search(q: str = Query("", max_length=100)):
     # Il ne faut pas utiliser de f-string pour construire la requête SQL, cela permet des injections SQL
     # Requête paramétrée avec le joker '?' (anti-SQLi)
     sql = "SELECT id, name, price FROM products WHERE name LIKE ?"
@@ -251,7 +261,7 @@ def ping(host: str = "127.0.0.1"):
 
 
 @app.get("/hello")
-def hello(name: str = ""):
+def hello(name: str = Query("", max_length=100)):
     safe_name = html.escape(name)  # Échappe les caractères spéciaux pour éviter l'XSS
     return HTMLResponse(f"<h1>Bonjour {safe_name}</h1>")
 
@@ -321,13 +331,8 @@ def fetch(url: str):
 @app.get("/invoices/{invoice_id}")
 def invoice(invoice_id: int, user: dict = Depends(current_user)):
     row = db().execute("SELECT * FROM invoices WHERE id = ?", (invoice_id,)).fetchone()
-    if not row :
-        raise HTTPException(status_code=404, detail="invoice not found")
-
-    # Contrôle d'accès IDOR : propriétaire ou administrateur uniquement
-    if row["owner_id"] != user["id"] and not user["is_admin"]:
+    if not row or (row["owner_id"] != user["id"] and not user["is_admin"]):
         raise HTTPException(status_code=404, detail="not found")
-
     return dict(row)
 
 @app.get("/admin/users")
