@@ -4,16 +4,11 @@ Ne jamais déployer ce code tel quel. Votre mission : le rendre conforme.
 Documentation interactive : http://localhost:5000/docs
 """
 import ast
-import base64
-import hashlib
 import logging
 import os
-import pickle
-import random
 import sqlite3
 import subprocess
 import sys
-import traceback
 
 import ipaddress
 import operator
@@ -22,7 +17,7 @@ from fastapi.concurrency import asynccontextmanager
 import requests
 import uvicorn
 import yaml
-from fastapi import Body, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.middleware.sessions import SessionMiddleware
 import html
@@ -56,7 +51,12 @@ SAFE_OPERATORS = {
 
 ALLOWED_FETCH_HOSTS = {"example.com", "api.github.com", "stackoverflow.com"}
 
-logging.basicConfig(level=logging.DEBUG)
+ROLE_PERMISSIONS = {
+    "admin": {"user:list", "user:delete"},
+    "user": set(),
+}
+
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("minishop")
 
 IS_DEV = os.getenv("ENV", "production").lower() in ("dev", "development")
@@ -166,10 +166,15 @@ def current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="user not found")
     return dict(row)
 
-def require_admin(user: dict = Depends(current_user)) -> dict:
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="forbidden")
-    return user
+
+
+def require(permission: str):
+    def checker(user: dict = Depends(current_user)) -> dict:
+        role = "admin" if user.get("is_admin") else "user"
+        if permission not in ROLE_PERMISSIONS.get(role, set()):   # refus par défaut
+            raise HTTPException(status_code=403, detail="forbidden")
+        return user
+    return checker
 
 
 
@@ -246,10 +251,6 @@ def ping(host: str = "127.0.0.1"):
         return PlainTextResponse(out.stdout + out.stderr)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=408, detail="Ping request timed out")
-    #out = subprocess.run(f"ping -c 1 {host}", shell=True, capture_output=True, text=True)
-    #return PlainTextResponse(out.stdout + out.stderr)
-
-
 @app.get("/hello")
 def hello(name: str = ""):
     safe_name = html.escape(name)  # Échappe les caractères spéciaux pour éviter l'XSS
@@ -279,7 +280,6 @@ def calc(data: CalcModel):
         return {"result": str(result)}
     except Exception:
         return JSONResponse({"error": "invalid expression"}, status_code=400)    
-    # return {"result": str(eval(data["expr"]))}
 
 
 @app.post("/import-yaml")
@@ -332,13 +332,13 @@ def invoice(invoice_id: int, user: dict = Depends(current_user)):
     return dict(row)
 
 @app.get("/admin/users")
-def admin_users(admin: dict = Depends(require_admin)):
+def admin_users(admin: dict = Depends(require("user:list"))):
     rows = db().execute("SELECT id, username, is_admin FROM users").fetchall()
     return [dict(r) for r in rows]
 
 
 @app.delete("/users/{user_id}")
-def delete_user(user_id: int, admin: dict = Depends(require_admin)):
+def delete_user(user_id: int, admin: dict = Depends(require("user:delete"))):
     conn = db()
     conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
     conn.commit()
