@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from starlette.middleware.sessions import SessionMiddleware
 
 from fastapi import HTTPException
+from pydantic import BaseModel
 
 SECRET_KEY = os.environ["SECRET_KEY"]
 DB_PATH = os.environ.get("DB_PATH", "shop.db")
@@ -80,6 +81,11 @@ def init_db():
                      [(2, "Facture Alice", 42.0), (3, "Facture Bob", 99.0)])
     conn.commit()
     conn.close()
+
+class ProfileModel(BaseModel):
+    username: str
+    email: str = ""
+    role: str = "user"
 
 
 @app.exception_handler(Exception)
@@ -183,14 +189,19 @@ def calc(data: dict = Body(...)):
 
 @app.post("/import-yaml")
 async def import_yaml(request: Request):
-    cfg = yaml.load(await request.body(), Loader=yaml.Loader)
-    return {"keys": list(cfg.keys()) if isinstance(cfg, dict) else str(type(cfg))}
-
+    body = await request.body()
+    try:
+        cfg = yaml.safe_load(body)
+        if not isinstance(cfg, dict):
+            return JSONResponse({"error": "invalid yaml format"}, status_code=400)
+        return {"keys": list(cfg.keys())}
+    except Exception:
+        return JSONResponse({"error": "invalid YAML"}, status_code=400)
 
 @app.post("/import-profile")
-async def import_profile(request: Request):
-    profile = pickle.loads(base64.b64decode(await request.body()))
-    return {"profile": str(profile)}
+async def import_profile(profile: ProfileModel):
+    # FastAPI désérialise et valide automatiquement le JSON en entrée
+    return {"profile": profile.dict()}
 
 
 @app.get("/fetch")
