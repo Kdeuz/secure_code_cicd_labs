@@ -24,11 +24,16 @@ from fastapi import Body, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from starlette.middleware.sessions import SessionMiddleware
 import html
+import secrets
 
 from fastapi import HTTPException
 from pydantic import BaseModel
 from pathlib import Path
 from urllib.parse import urlparse
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+
+ph = PasswordHasher()
 
 SECRET_KEY = os.environ["SECRET_KEY"]
 DB_PATH = os.environ.get("DB_PATH", "shop.db")
@@ -49,7 +54,14 @@ logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("minishop")
 
 app = FastAPI(title="MiniShop", debug=True)
-app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+# app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+# Configuration sécurisée du cookie de session
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    https_only=True,
+    same_site="lax"
+)
 
 
 def db():
@@ -77,9 +89,9 @@ def init_db():
         """
     )
     conn.execute("INSERT INTO users (username, password, is_admin) VALUES (?, ?, 1)",
-                 ("admin", md5("admin123")))
-    conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("alice", md5("alice123")))
-    conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("bob", md5("bob123")))
+                 ("admin", ph.hash("admin123")))
+    conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("alice", ph.hash("alice123")))
+    conn.execute("INSERT INTO users (username, password) VALUES (?, ?)", ("bob", ph.hash("bob123")))
     conn.executemany("INSERT INTO products (name, price) VALUES (?, ?)",
                      [("apple", 1.2), ("banana", 0.8), ("cherry", 3.5)])
     conn.executemany("INSERT INTO invoices (owner_id, label, amount) VALUES (?, ?, ?)",
@@ -116,12 +128,21 @@ def login(request: Request, data: dict = Body(...)):
     # Il ne faut pas utiliser de f-string pour construire la requête SQL, cela permet des injections SQL
     # Requête paramétrée avec le joker '?' (anti-SQLi)
 
-    sql = "SELECT * FROM users WHERE username = ? AND password = ?"
-    row = db().execute(sql, (username, md5(password))).fetchone()
+    sql = "SELECT * FROM users WHERE username = ?"
+    row = db().execute(sql, (username,)).fetchone()
     if not row:
       return JSONResponse({"error": "bad credentials"}, status_code=401)
+
+    # Vérification sécurisée du hashage Argon2id
+    try:
+        ph.verify(row["password"], password)
+    except VerifyMismatchError:
+        return JSONResponse({"error": "bad credentials"}, status_code=401)
+
     request.session["user_id"] = row["id"]
-    request.session["token"] = str(random.randint(0, 10**6))
+    # request.session["token"] = str(random.randint(0, 10**6))
+    # Génération d'un jeton cryptographiquement sûr
+    request.session["token"] = secrets.token_hex(16)
     return {"status": "logged in", "user": row["username"]}
 
 
