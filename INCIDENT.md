@@ -1,9 +1,11 @@
 # Rapport d'incident : version compromise de `requests`
 
+> Scénario fictif : on suppose que `requests==2.34.2` (version verrouillée dans `requirements.txt`) est annoncée compromise le 29/10/2026. La version saine `2.34.3` est hypothétique.
+
 **Date :** 29 octobre 2026 · **Sévérité :** Critique
 
 ## 1. Détection
-Un avis annonce que `requests==X.Y.Z` est compromise.
+Un avis annonce que `requests==2.34.2` est compromise.
 
 ```bash
 pip-audit -r app/requirements.txt
@@ -17,7 +19,7 @@ Objectif : savoir si la version compromise a été installée, où, et quand.
 ```bash
 # Version verrouillée, et depuis quel commit
 grep -n "^requests==" app/requirements.txt
-git log -S"requests==X.Y.Z" --oneline -- app/requirements.txt
+git log -S"requests==2.34.2" --oneline -- app/requirements.txt
 
 # Version réellement présente dans l'image et dans le venv
 docker run --rm minishop pip freeze | grep -i requests
@@ -28,7 +30,7 @@ pipdeptree -r -p requests
 grep -rn "requests" app/app.py
 
 # Quels builds CI ont pu installer la version compromise
-gh run list --created ">=YYYY-MM-DD" --json databaseId,conclusion,headSha
+gh run list --created ">=2026-10-29" --json databaseId,conclusion,headSha
 ```
 Il faut aussi consulter les logs réseau sortants pour repérer des connexions inhabituelles. Si la version compromise n'a jamais été installée (lockfile antérieur), l'exposition est nulle.
 
@@ -49,7 +51,7 @@ Les environnements compromis (`.venv`, image) sont supprimés seulement après l
 ## 4. Correction
 ```bash
 # Exclure la version compromise (ou épingler une version saine connue)
-echo "requests!=X.Y.Z" >> app/requirements.in   # ou requests==A.B.C
+echo "requests!=2.34.2" >> app/requirements.in   # ou requests==2.34.3
 
 pip-compile --generate-hashes app/requirements.in -o app/requirements.txt
 python -m venv /tmp/clean && /tmp/clean/bin/pip install --require-hashes -r app/requirements.txt
