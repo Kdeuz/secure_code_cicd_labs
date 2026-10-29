@@ -107,10 +107,6 @@ def db():
     return conn
 
 
-def md5(value):
-    return hashlib.md5(value.encode()).hexdigest()
-
-
 def init_db():
     conn = db()
     conn.executescript(

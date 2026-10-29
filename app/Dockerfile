@@ -6,6 +6,7 @@ WORKDIR /app
 RUN useradd -m -u 1000 appuser
 
 COPY app/requirements.txt requirements.txt
+RUN pip install --no-cache-dir --upgrade setuptools wheel
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ .
