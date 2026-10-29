@@ -1,0 +1,11 @@
+fastapi>=0.109.1
+uvicorn[standard]
+argon2-cffi
+starlette>=0.40.0
+pydantic
+requests>=2.32.4
+pyyaml
+jinja2
+urllib3>=2.8.0
+idna>=3.7
+slowapi

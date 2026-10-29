@@ -12,6 +12,7 @@ import pickle
 import random
 import sqlite3
 import subprocess
+import sys
 import traceback
 
 import ipaddress
@@ -33,6 +34,9 @@ from urllib.parse import urlparse
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import Depends
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 ph = PasswordHasher()
 
@@ -54,16 +58,31 @@ ALLOWED_FETCH_HOSTS = {"example.com", "api.github.com", "stackoverflow.com"}
 logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger("minishop")
 
-# Si la variable ENV vaut "development", IS_DEV sera True. Sinon, False par défaut.
-IS_DEV = os.environ.get("ENV", "production").lower() == "development"
+IS_DEV = os.getenv("ENV", "production").lower() in ("dev", "development")
 
 app = FastAPI(
     title="MiniShop",
-    debug=IS_DEV,                                   # Debug actif uniquement en dev
-    docs_url="/docs" if IS_DEV else None,           # Swagger actif uniquement en dev
-    redoc_url="/redoc" if IS_DEV else None,         # ReDoc actif uniquement en dev
-    openapi_url="/openapi.json" if IS_DEV else None # Schéma OpenAPI actif uniquement en dev
+    debug=IS_DEV,
+    docs_url="/docs" if IS_DEV else None,
+    redoc_url="/redoc" if IS_DEV else None,
+    openapi_url="/openapi.json" if IS_DEV else None
 )
+
+# Détection de l'exécution via pytest
+IS_TESTING = "pytest" in sys.modules or os.getenv("ENV") == "test"
+
+limiter = Limiter(key_func=get_remote_address, enabled=not IS_TESTING)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+# Intercepte toutes les erreurs 500 non gérées pour masquer la stacktrace
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"}
+    )
 
 app.add_middleware(
     SessionMiddleware,
@@ -158,11 +177,12 @@ class ProfileModel(BaseModel):
     email: str = ""
     role: str = "user"
 
+class LoginModel(BaseModel):
+    username: str
+    password: str
 
-@app.exception_handler(Exception)
-async def handle_error(request: Request, exc: Exception):
-    return HTMLResponse("<pre>" + traceback.format_exc() + "</pre>", status_code=500)
-
+class CalcModel(BaseModel):
+    expr: str
 
 @app.get("/health")
 def health():
@@ -170,8 +190,9 @@ def health():
 
 
 @app.post("/login")
-def login(request: Request, data: dict = Body(...)):
-    username, password = data["username"], data["password"]
+@limiter.limit("5/minute")  # Limite à 5 tentatives par minute par IP
+def login(request: Request, data: LoginModel):
+    username, password = data.username, data.password
 
     #log.info(f"login attempt user={username} password={password}")
     #Il ne faut pas logger le mot de passe en clair
@@ -250,8 +271,8 @@ def get_file(name: str):
     return FileResponse(target_path)
 
 @app.post("/calc")
-def calc(data: dict = Body(...)):
-    expr = data.get("expr", "")
+def calc(data: CalcModel):
+    expr = data.expr
     try:
         result = safe_eval(expr)
         return {"result": str(result)}
