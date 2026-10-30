@@ -84,13 +84,6 @@ limiter = Limiter(key_func=get_remote_address, enabled=not IS_TESTING)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-
-# Intercepte toutes les erreurs 500 non gérées pour masquer la stacktrace
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    log.error("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
-    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
-
 app.add_middleware(
     SessionMiddleware,
     secret_key=SECRET_KEY,
@@ -98,6 +91,7 @@ app.add_middleware(
     same_site="lax"
 )
 
+# Ajoute les en-têtes de sécurité et masque les erreurs 500 (log serveur, réponse générique)
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     try:
@@ -305,7 +299,7 @@ async def import_yaml(request: Request):
 @app.post("/import-profile")
 async def import_profile(profile: ProfileModel):
     # FastAPI désérialise et valide automatiquement le JSON en entrée
-    return {"profile": profile.dict()}
+    return {"profile": profile.model_dump()}
 
 
 @app.get("/fetch")
