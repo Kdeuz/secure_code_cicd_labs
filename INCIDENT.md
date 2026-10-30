@@ -1,8 +1,30 @@
 # Rapport d'incident : version compromise de `requests`
 
-> Scénario fictif : on suppose que `requests==2.34.2` (version verrouillée dans `requirements.txt`) est annoncée compromise le 29/10/2026. La version saine `2.34.3` est hypothétique.
+> Scénario fictif : on suppose que `requests==2.34.2` (version verrouillée dans `requirements.txt`) est annoncée compromise le 29/10/2026. La version saine `2.34.3` est hypothétique. Les noms `deploy.yml` et `minishop-app` sont des exemples : le dépôt ne contient que `security.yml`.
 
 **Date :** 29 octobre 2026 · **Sévérité :** Critique
+
+## Chronologie (fictive)
+| Heure | Événement |
+|-------|-----------|
+| 09:00 | Un avis public annonce que `requests==2.34.2` est compromise. |
+| 09:15 | Détection : `pip-audit` et Trivy signalent la version dans le lockfile. |
+| 09:30 | Évaluation d'exposition : la version est bien installée (lockfile, image, CI). |
+| 10:00 | Confinement : coupure réseau du conteneur, copie des preuves, déploiements bloqués. |
+| 11:00 | Correction : version exclue, lockfile régénéré, image reconstruite et analysée. |
+| 12:00 | Rotation de `SECRET_KEY` et des autres secrets, redéploiement. |
+| J+1 | Surveillance, puis retour d'expérience. |
+
+## Impact
+- **Secrets :** la bibliothèque s'exécute dans le processus de l'application. Elle a donc accès à `SECRET_KEY` (variable d'environnement). Avec cette clé, un attaquant peut forger des cookies de session.
+- **Trafic sortant :** `requests` effectue les appels HTTP de `/fetch`. Elle voit les URL demandées et les réponses, et du code malveillant pourrait contacter n'importe quel hôte (la liste blanche protège l'application, pas la bibliothèque elle-même).
+- **Données :** la base SQLite contient des comptes utilisateurs (mots de passe hachés en Argon2) et des factures. Elle est lisible par le processus compromis.
+- **CI :** les builds exécutés après l'adoption de la version ont pu l'installer et exposer les secrets du workflow.
+
+## Communication
+- **En interne :** équipe de développement et responsable sécurité prévenus dès la détection, point d'avancement à chaque étape.
+- **Clients / utilisateurs :** information si l'analyse montre que des données ont pu être consultées, avec invitation à changer leur mot de passe.
+- **CNIL :** si des données personnelles sont concernées, notification d'une violation de données sous 72 h (art. 33 du RGPD).
 
 ## 1. Détection
 Un avis annonce que `requests==2.34.2` est compromise.
@@ -26,6 +48,7 @@ docker run --rm minishop pip freeze | grep -i requests
 pip show requests
 
 # Qui dépend de requests, et où le code l'utilise
+pip install pipdeptree
 pipdeptree -r -p requests
 grep -rn "requests" app/app.py
 
@@ -39,11 +62,12 @@ On isole et on conserve les preuves avant de supprimer quoi que ce soit.
 
 ```bash
 docker network disconnect bridge minishop-app        # coupe les communications sortantes
+docker logs minishop-app > app.log                   # logs applicatifs
 docker commit minishop-app evidence:requests-incident
 docker save evidence:requests-incident -o evidence.tar
 docker stop minishop-app
 
-gh workflow disable deploy.yml                       # bloque les déploiements
+gh workflow disable deploy.yml                       # bloque les déploiements (nom d'exemple)
 # + protection de branche sur main (revue obligatoire)
 ```
 Les environnements compromis (`.venv`, image) sont supprimés seulement après la copie des preuves.
@@ -68,12 +92,12 @@ La version compromise s'exécutait dans le processus de l'application : on suppo
 ```bash
 NEW=$(openssl rand -hex 32)                          # une seule génération
 sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$NEW/" .env
-gh secret set SECRET_KEY --body "$NEW"
+printf %s "$NEW" | gh secret set SECRET_KEY          # si le secret existe côté GitHub
 ```
-Les sessions existantes sont invalidées. Autres secrets à renouveler : clés AWS (désactiver, créer, supprimer), tokens GitHub, identifiants du registre Docker, mots de passe de la base. Vérification : `gitleaks detect`.
+Les sessions existantes sont invalidées. Autres secrets à renouveler le cas échéant : tokens GitHub, clés cloud (désactiver, créer, supprimer), identifiants du registre Docker. Les mots de passe des comptes de démonstration créés par `init_db()` doivent aussi être changés (ils sont fixes dans le code). Vérification : `gitleaks detect`.
 
 ## 6. Retour d'expérience
-**Bien fonctionné :** pip-audit, Trivy et Dependabot dans la CI ; conteneur non-root avec code en lecture seule ; SBOM pour retrouver rapidement les dépendances.
+**Bien fonctionné :** pip-audit, Trivy et Dependabot dans la CI ; conteneur non-root, avec un code en lecture seule pour `appuser` (fichiers appartenant à root) ; SBOM pour retrouver rapidement les dépendances.
 
 **Limites :** les hashes garantissent l'intégrité du fichier **par rapport au lockfile**. Si la version compromise y est déjà, pip l'installe fidèlement. Ils protègent contre une altération après le verrouillage, pas contre une compromission à la source.
 
