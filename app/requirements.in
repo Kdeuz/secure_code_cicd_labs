@@ -1,4 +1,4 @@
-fastapi>=0.109.1
+fastapi>=0.162.4
 uvicorn[standard]
 argon2-cffi
 starlette>=0.40.0
